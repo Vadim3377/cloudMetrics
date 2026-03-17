@@ -14,6 +14,17 @@ from sklearn.metrics import (
 
 
 def choose_best_threshold(y_true, y_prob):
+    """
+    Select the best decision threshold using validation data.
+
+    The model outputs probabilities between 0 and 1, but we need to
+    convert them into binary decisions (alert or no alert).
+
+    The default threshold 0.5 is often not optimal for imbalanced data,
+    so we test multiple thresholds and choose the one with the best F1 score.
+
+    F1 is used because it balances precision (false alarms) and recall (missed incidents)
+    """
     thresholds = np.linspace(0.05, 0.95, 19)
     best_threshold = 0.5
     best_f1 = -1.0
@@ -21,6 +32,7 @@ def choose_best_threshold(y_true, y_prob):
     for thr in thresholds:
         y_pred = (y_prob >= thr).astype(int)
         score = f1_score(y_true, y_pred, zero_division=0)
+
         if score > best_f1:
             best_f1 = score
             best_threshold = thr
@@ -29,6 +41,31 @@ def choose_best_threshold(y_true, y_prob):
 
 
 def compute_metrics(y_true, y_prob, threshold):
+    """
+    Compute evaluation metrics using a fixed decision threshold.
+
+    Inputs:
+        y_true: ground truth labels
+        y_prob: predicted probabilities
+        threshold: chosen decision threshold
+
+    Metrics:
+        precision:
+            of all predicted alerts, how many were correct
+
+        recall:
+            of all real incidents, how many were detected
+
+        f1:
+            balance between precision and recall
+
+        roc_auc:
+            overall ranking quality
+
+        pr_auc:
+            more informative metric for imbalanced datasets
+    """
+
     y_pred = (y_prob >= threshold).astype(int)
 
     return {
@@ -42,21 +79,43 @@ def compute_metrics(y_true, y_prob, threshold):
 
 
 def predict_lstm(model, X, device="cpu"):
+    """
+    Generate predicted probabilities from the LSTM model.
+
+    Steps:
+        1) switch model to evaluation mode
+        2) disable gradient computation
+        3) convert input to tensor
+        4) run forward pass
+        5) apply sigmoid to get probabilities
+    """
     model.eval()
+
     with torch.no_grad():
         X_tensor = torch.tensor(X, dtype=torch.float32).to(device)
         logits = model(X_tensor)
         probs = torch.sigmoid(logits).cpu().numpy()
+
     return probs
 
 
 def save_metrics(metrics, path):
+    """
+    Save metrics to a JSON file.
+    This makes results easy to inspect and reuse.
+    """
     with open(path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
 
 
 def plot_pr_curve(y_true, y_prob, path):
+    """
+    Plot precision-recall curve.
+
+    This is preferred over ROC curve when dealing with rare events.
+    """
     precision, recall, _ = precision_recall_curve(y_true, y_prob)
+
     plt.figure(figsize=(8, 5))
     plt.plot(recall, precision)
     plt.xlabel("Recall")
@@ -68,6 +127,14 @@ def plot_pr_curve(y_true, y_prob, path):
 
 
 def plot_timeline(memory, incident_labels, probs, threshold, split_start_idx, path):
+    """
+    Plot memory usage, true incidents, and predicted probabilities.
+
+    This visualization helps check if the model predicts incidents
+    before they actually happen.
+
+    split_start_idx is used to align predictions with the original timeline.
+    """
     plt.figure(figsize=(14, 6))
 
     t = np.arange(len(memory))
